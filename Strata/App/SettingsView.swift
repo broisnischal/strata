@@ -1,3 +1,4 @@
+import ServiceManagement
 import SwiftUI
 
 struct SettingsView: View {
@@ -8,10 +9,24 @@ struct SettingsView: View {
     @AppStorage("menuBarShowsMemory") private var menuBarMemory = true
     @AppStorage("showAppleLaunchItems") private var showApple = false
     @AppStorage("showAppleKexts") private var showAppleKexts = true
+    @State private var login = LoginItem()
 
     var body: some View {
         @Bindable var monitor = monitor
         Form {
+            Section("General") {
+                Toggle("Open Strata at login", isOn: Binding(get: { login.isOn }, set: { login.set($0) }))
+                if login.needsApproval {
+                    HStack {
+                        Text("Allow Strata under Login Items in System Settings.").font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Open Login Items") { SMAppService.openSystemSettingsLoginItems() }
+                    }
+                }
+                if let error = login.error {
+                    Text(error).font(.caption).foregroundStyle(.secondary)
+                }
+            }
             Section("Look") {
                 Picker("Appearance", selection: $appearance) {
                     ForEach(Appearance.allCases) { Text($0.title).tag($0) }
@@ -46,6 +61,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { login.refresh() }
         .frame(width: 460)
         .fixedSize()
     }

@@ -2,7 +2,7 @@ CONFIG ?= Debug
 APP := .build/xcode/Build/Products/$(CONFIG)/Strata.app
 XCODEBUILD := xcodebuild -project Strata.xcodeproj -scheme Strata -derivedDataPath .build/xcode -destination 'platform=macOS,arch=arm64'
 
-.PHONY: project build release run selftest clean
+.PHONY: project build release install run selftest clean
 
 project:
 	@xcodegen generate --quiet
@@ -15,6 +15,15 @@ build: project
 
 release:
 	@$(MAKE) build CONFIG=Release
+
+# Release build into /Applications, replacing (and quitting) any copy there.
+install: release
+	@pkill -x Strata || true
+	@rm -rf /Applications/Strata.app
+	@ditto .build/xcode/Build/Products/Release/Strata.app /Applications/Strata.app
+	@/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/Strata.app
+	@open /Applications/Strata.app
+	@echo "Installed /Applications/Strata.app"
 
 run: build
 	open $(APP)

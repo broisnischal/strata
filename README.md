@@ -20,7 +20,7 @@
 
 **Alerts.** Memory pressure, memory and swap use, sustained CPU, a runaway process, a process using too much memory, a nearly full disk, a hot Mac, a low battery. Each threshold is yours to set; alerts arrive as notifications, stay in a history, and repeat at most every so often while they last.
 
-**Menu bar.** CPU and memory at a glance, with a panel of sparklines, the busiest processes and anything alerting. Choose what it shows, or turn it off, in Settings.
+**Menu bar.** CPU and memory at a glance, with a panel of sparklines, the busiest processes and anything alerting. Choose what it shows, or turn it off, in Settings, where Strata can also open at login.
 
 **Drivers.** Loaded kernel extensions, system extensions (DriverKit, network, endpoint security, camera), USB devices, and a searchable I/O Registry explorer.
 
@@ -43,6 +43,7 @@
 Needs macOS 26 on Apple silicon, Xcode 26 or later, and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
 
 ```sh
+make install    # Release build into /Applications, then open it
 make run        # build (Debug) and open the app
 make release    # Release build
 make selftest   # build, then sample everything once headlessly and check the alert and ordering logic
