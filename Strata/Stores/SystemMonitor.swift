@@ -53,6 +53,7 @@ final class SystemMonitor {
     private(set) var history: [HistorySample] = []
     private(set) var appPIDs: Set<Int32> = []
     private(set) var threadCount = 0
+    private(set) var limitedCount = 0
     private(set) var processPower: Double = 0
     /// The busiest processes, in an order that holds for a few seconds.
     private(set) var topProcesses: [ProcessSample] = []
@@ -127,8 +128,10 @@ final class SystemMonitor {
         processes = procs
         processPower = procs.reduce(0) { $0 + ($1.power ?? 0) }
         threadCount = procs.reduce(0) { $0 + ($1.threads ?? 0) }
+        limitedCount = procs.reduce(0) { $0 + ($1.limited ? 1 : 0) }
         if sequence % 5 == 0 {
-            appPIDs = Set(NSWorkspace.shared.runningApplications.lazy.filter { $0.activationPolicy == .regular }.map(\.processIdentifier))
+            let apps = Set(NSWorkspace.shared.runningApplications.lazy.filter { $0.activationPolicy == .regular }.map(\.processIdentifier))
+            if apps != appPIDs { appPIDs = apps }
         }
         // Ranked over every process, so which six show changes only at a reorder.
         topProcesses = Array(topOrder.order(procs, by: { $0.cpu > $1.cpu }, every: reorderInterval).prefix(6))

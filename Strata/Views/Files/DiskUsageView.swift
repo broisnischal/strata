@@ -145,27 +145,42 @@ private struct TreemapView: View {
     @Binding var hovered: FileNode.ID?
     let onOpen: (FileNode) -> Void
 
-    private static let palette: [Color] = [.blue, .purple, .pink, .orange, .teal, .green, .indigo, .cyan, .mint, .brown]
+    /// One hue for folders, neutral for files: size is the story, not colour.
+    private func fill(_ item: FileNode) -> Color {
+        item.isAggregate ? Theme.neutral : item.isDirectory ? Theme.series1 : Theme.neutral
+    }
 
     var body: some View {
         GeometryReader { geo in
             let items = Array(node.children.prefix(300).filter { $0.size > 0 })
             let rects = Treemap.layout(items.map { Double($0.size) }, in: CGRect(origin: .zero, size: geo.size).insetBy(dx: 4, dy: 4))
-            Canvas { context, _ in
-                for (index, item) in items.enumerated() {
+            // Views, not a Canvas: a Canvas would put the whole window on GPU drawables.
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     let rect = rects[index].insetBy(dx: 1, dy: 1)
-                    guard rect.width > 0.5, rect.height > 0.5 else { continue }
-                    let base = item.isAggregate ? Color.gray : item.isDirectory ? Self.palette[index % Self.palette.count] : .secondary
-                    let emphasized = item.id == selection || item.id == hovered
-                    let path = Path(roundedRect: rect, cornerRadius: min(4, rect.width / 4, rect.height / 4))
-                    context.fill(path, with: .color(base.opacity(emphasized ? 0.9 : item.isDirectory ? 0.6 : 0.35)))
-                    if item.id == selection { context.stroke(path, with: .color(.primary), lineWidth: 2) }
-                    if rect.width > 60, rect.height > 30 {
-                        let label = Text("\(Text(item.name).font(.caption.weight(.semibold)))\n\(Text(Fmt.fileBytes(item.size)).font(.caption2))")
-                        context.draw(label.foregroundStyle(.white), in: rect.insetBy(dx: 6, dy: 4))
+                    if rect.width > 0.5, rect.height > 0.5 {
+                        let emphasized = item.id == selection || item.id == hovered
+                        let shape = RoundedRectangle(cornerRadius: min(4, rect.width / 4, rect.height / 4), style: .continuous)
+                        shape
+                            .fill(fill(item).opacity(emphasized ? 0.95 : item.isDirectory ? 0.6 : 0.5))
+                            .overlay { if item.id == selection { shape.strokeBorder(.primary, lineWidth: 2) } }
+                            .overlay(alignment: .topLeading) {
+                                if rect.width > 60, rect.height > 30 {
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(item.name).font(.caption.weight(.semibold)).lineLimit(1)
+                                        Text(Fmt.fileBytes(item.size)).font(.caption2).monospacedDigit()
+                                    }
+                                    .foregroundStyle(item.isDirectory ? .white : .primary)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 4)
+                                }
+                            }
+                            .frame(width: rect.width, height: rect.height)
+                            .offset(x: rect.minX, y: rect.minY)
                     }
                 }
             }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
             .contentShape(.rect)
             .onContinuousHover { phase in
                 if case .active(let point) = phase {

@@ -1,4 +1,3 @@
-import Charts
 import SwiftUI
 
 // MARK: - Layout
@@ -182,7 +181,13 @@ struct Series: Identifiable {
     var id: String { name }
 }
 
-/// A time series in thin lines over a faint fill, with a hover readout.
+struct TimePoint: Identifiable {
+    let id: Int
+    let date: Date
+    let value: Double
+}
+
+/// System history in thin lines over a faint fill, with a hover readout.
 struct HistoryChart: View {
     let samples: [HistorySample]
     let series: [Series]
@@ -191,109 +196,19 @@ struct HistoryChart: View {
     var format: (Double) -> String = { Fmt.percent($0) }
     var height: CGFloat = 116
 
-    @State private var hover: Date?
-
     var body: some View {
-        let top = maxValue ?? niceTop
-        let hovered = hover.flatMap(nearest)
-        Chart {
-            ForEach(series) { s in
-                ForEach(samples) { sample in
-                    AreaMark(
-                        x: .value("Time", sample.date),
-                        y: .value(s.name, min(sample[keyPath: s.value], top)),
-                        series: .value("Series", s.name),
-                        stacking: .unstacked
-                    )
-                    .foregroundStyle(LinearGradient(colors: [s.color.opacity(series.count == 1 ? 0.22 : 0.12), s.color.opacity(0)], startPoint: .top, endPoint: .bottom))
-                    .interpolationMethod(.monotone)
-                    LineMark(
-                        x: .value("Time", sample.date),
-                        y: .value(s.name, min(sample[keyPath: s.value], top)),
-                        series: .value("Series", s.name)
-                    )
-                    .foregroundStyle(s.color)
-                    .lineStyle(StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round))
-                    .interpolationMethod(.monotone)
-                }
-            }
-            if let hovered {
-                RuleMark(x: .value("Time", hovered.date))
-                    .foregroundStyle(.secondary.opacity(0.5))
-                    .lineStyle(StrokeStyle(lineWidth: 1))
-                    .annotation(position: .top, spacing: 4, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
-                        Readout(sample: hovered, series: series, format: format)
-                    }
-                ForEach(series) { s in
-                    PointMark(x: .value("Time", hovered.date), y: .value(s.name, min(hovered[keyPath: s.value], top)))
-                        .foregroundStyle(s.color)
-                        .symbolSize(28)
-                }
-            }
-        }
-        .chartXSelection(value: $hover)
-        .chartXAxis(.hidden)
-        .chartYScale(domain: 0...top)
-        .chartYAxis {
-            AxisMarks(position: .trailing, values: [0, top / 2, top]) { value in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 1)).foregroundStyle(Theme.grid)
-                AxisValueLabel {
-                    if let v = value.as(Double.self) { Text(format(v)).font(.system(size: 9.5)).foregroundStyle(.tertiary) }
-                }
-            }
-        }
-        .frame(height: height)
-        .transaction { $0.animation = nil }
-    }
-
-    private func nearest(_ date: Date) -> HistorySample? {
-        samples.min { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) }
+        let lines = series.map { s in LineChart.Line(name: s.name, color: s.color, values: samples.map { $0[keyPath: s.value] }) }
+        LineChart(lines: lines, dates: samples.map(\.date), top: maxValue, minimumTop: minimumTop, format: format, height: height)
     }
 
     /// The peak rounded up to 1, 2, 2.5 or 5 times a power of ten, so the
     /// axis reads in round numbers and doesn't twitch with every sample.
-    private var niceTop: Double {
-        let peak = samples.reduce(0.0) { acc, sample in max(acc, series.map { sample[keyPath: $0.value] }.max() ?? 0) }
-        return Self.nice(max(peak * 1.1, minimumTop))
-    }
-
     static func nice(_ value: Double) -> Double {
         guard value > 0, value.isFinite else { return 1 }
         let magnitude = pow(10, floor(log10(value)))
         let step = [1, 2, 2.5, 5, 10].first { value <= $0 * magnitude } ?? 10
         return step * magnitude
     }
-}
-
-private struct Readout: View {
-    let sample: HistorySample
-    let series: [Series]
-    let format: (Double) -> String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(sample.date, style: .time).font(.system(size: 10)).foregroundStyle(.secondary)
-            ForEach(series) { s in
-                HStack(spacing: 5) {
-                    Swatch(color: s.color)
-                    Text(s.name).foregroundStyle(.secondary)
-                    Spacer(minLength: 8)
-                    Text(format(sample[keyPath: s.value])).monospacedDigit()
-                }
-                .font(.system(size: 11))
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .frame(minWidth: 120)
-        .surface(radius: 8)
-    }
-}
-
-struct TimePoint: Identifiable {
-    let id: Int
-    let date: Date
-    let value: Double
 }
 
 /// One measure over time, with the same anatomy as `HistoryChart`.
@@ -307,49 +222,9 @@ struct TimeChart: View {
     var format: (Double) -> String
     var height: CGFloat = 80
 
-    @State private var hover: Date?
-
     var body: some View {
-        let top = maxValue ?? HistoryChart.nice(max((points.map(\.value).max() ?? 0) * 1.1, minimumTop) / unit) * unit
-        let hovered = hover.flatMap { d in points.min { abs($0.date.timeIntervalSince(d)) < abs($1.date.timeIntervalSince(d)) } }
-        Chart {
-            ForEach(points) { p in
-                AreaMark(x: .value("Time", p.date), y: .value("Value", min(p.value, top)))
-                    .foregroundStyle(LinearGradient(colors: [color.opacity(0.2), color.opacity(0)], startPoint: .top, endPoint: .bottom))
-                    .interpolationMethod(.monotone)
-                LineMark(x: .value("Time", p.date), y: .value("Value", min(p.value, top)))
-                    .foregroundStyle(color)
-                    .lineStyle(StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round))
-                    .interpolationMethod(.monotone)
-            }
-            if let hovered {
-                RuleMark(x: .value("Time", hovered.date))
-                    .foregroundStyle(.secondary.opacity(0.5))
-                    .annotation(position: .top, spacing: 4, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(hovered.date, style: .time).font(.system(size: 10)).foregroundStyle(.secondary)
-                            Text(format(hovered.value)).font(.system(size: 11)).monospacedDigit()
-                        }
-                        .padding(.horizontal, 8).padding(.vertical, 5)
-                        .surface(radius: 8)
-                    }
-                PointMark(x: .value("Time", hovered.date), y: .value("Value", min(hovered.value, top)))
-                    .foregroundStyle(color).symbolSize(28)
-            }
-        }
-        .chartXSelection(value: $hover)
-        .chartXAxis(.hidden)
-        .chartYScale(domain: 0...top)
-        .chartYAxis {
-            AxisMarks(position: .trailing, values: [0, top / 2, top]) { value in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 1)).foregroundStyle(Theme.grid)
-                AxisValueLabel {
-                    if let v = value.as(Double.self) { Text(format(v)).font(.system(size: 9.5)).foregroundStyle(.tertiary) }
-                }
-            }
-        }
-        .frame(height: height)
-        .transaction { $0.animation = nil }
+        LineChart(lines: [.init(name: "", color: color, values: points.map(\.value))], dates: points.map(\.date),
+                  top: maxValue, minimumTop: minimumTop, unit: unit, format: format, height: height)
     }
 }
 
@@ -361,24 +236,175 @@ struct Sparkline: View {
     var height: CGFloat = 26
 
     var body: some View {
-        let peak = top ?? max(values.max() ?? 0, 1e-9)
-        Chart {
-            ForEach(Array(values.enumerated()), id: \.offset) { i, v in
-                AreaMark(x: .value("i", i), y: .value("v", min(v, peak)))
-                    .foregroundStyle(LinearGradient(colors: [color.opacity(0.2), color.opacity(0)], startPoint: .top, endPoint: .bottom))
-                    .interpolationMethod(.monotone)
-                LineMark(x: .value("i", i), y: .value("v", min(v, peak)))
-                    .foregroundStyle(color)
-                    .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round))
-                    .interpolationMethod(.monotone)
+        LineChart(lines: [.init(name: "", color: color, values: values)], dates: [], top: top ?? max(values.max() ?? 0, 1e-9),
+                  format: { _ in "" }, height: height, axis: false)
+    }
+}
+
+/// Lines as plain shapes: a path per series, a few grid lines and labels,
+/// and a readout under the pointer. Shapes stay on Core Animation's ordinary
+/// path; a `Canvas` (or a charting framework) would move the whole window onto
+/// GPU drawables and cost tens of megabytes for a sparkline.
+struct LineChart: View {
+    struct Line {
+        let name: String
+        let color: Color
+        let values: [Double]
+    }
+
+    let lines: [Line]
+    let dates: [Date]
+    var top: Double?
+    var minimumTop: Double = 1
+    var unit: Double = 1
+    let format: (Double) -> String
+    var height: CGFloat
+    var axis = true
+
+    @State private var hover: CGFloat?
+    private static let gutter: CGFloat = 46
+
+    var body: some View {
+        let count = lines.map(\.values.count).max() ?? 0
+        let peak = lines.flatMap(\.values).max() ?? 0
+        let top = self.top ?? HistoryChart.nice(max(peak * 1.1, minimumTop) / unit) * unit
+        GeometryReader { geo in
+            let plot = CGSize(width: max(geo.size.width - (axis ? Self.gutter : 0), 1), height: geo.size.height)
+            let index = hover.flatMap { x in count > 1 ? min(max(Int((x / plot.width * CGFloat(count - 1)).rounded()), 0), count - 1) : nil }
+            let x = index.map { count > 1 ? plot.width * CGFloat($0) / CGFloat(count - 1) : 0 }
+            ZStack(alignment: .topLeading) {
+                if axis {
+                    Path { path in
+                        for value in [0, top / 2, top] {
+                            let y = Trend.y(value, top: top, height: plot.height)
+                            path.move(to: CGPoint(x: 0, y: y))
+                            path.addLine(to: CGPoint(x: plot.width, y: y))
+                        }
+                    }
+                    .stroke(Theme.grid, lineWidth: 1)
+                    ForEach([0, top / 2, top], id: \.self) { value in
+                        Text(format(value))
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .frame(width: Self.gutter - 6, alignment: .leading)
+                            .position(x: plot.width + 6 + (Self.gutter - 6) / 2,
+                                      y: min(max(Trend.y(value, top: top, height: plot.height), 6), plot.height - 6))
+                    }
+                }
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                    let fade = lines.count == 1 ? 0.22 : 0.12
+                    Trend(values: line.values, count: count, top: top, area: true)
+                        .fill(LinearGradient(colors: [line.color.opacity(fade), line.color.opacity(0)], startPoint: .top, endPoint: .bottom))
+                        .frame(width: plot.width, height: plot.height)
+                    Trend(values: line.values, count: count, top: top, area: false)
+                        .stroke(line.color, style: StrokeStyle(lineWidth: axis ? 1.75 : 1.5, lineCap: .round, lineJoin: .round))
+                        .frame(width: plot.width, height: plot.height)
+                }
+                if let index, let x, axis {
+                    Rectangle().fill(.secondary.opacity(0.5)).frame(width: 1, height: plot.height).position(x: x, y: plot.height / 2)
+                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                        if index < line.values.count {
+                            Circle().fill(line.color).frame(width: 7, height: 7)
+                                .position(x: x, y: Trend.y(line.values[index], top: top, height: plot.height))
+                        }
+                    }
+                    readout(index).fixedSize()
+                        .alignmentGuide(.leading) { d in -min(max(x - d.width / 2, 0), max(plot.width - d.width, 0)) }
+                        .offset(y: -6)
+                        .allowsHitTesting(false)
+                }
+            }
+            .contentShape(.rect)
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let p): hover = axis ? p.x : nil
+                case .ended: hover = nil
+                }
             }
         }
-        .chartXAxis(.hidden)
-        .chartYAxis(.hidden)
-        .chartXScale(domain: 0...max(values.count - 1, 1))
-        .chartYScale(domain: 0...peak)
         .frame(height: height)
-        .transaction { $0.animation = nil }
+    }
+
+    private func readout(_ index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if index < dates.count { Text(dates[index], style: .time).font(.system(size: 10)).foregroundStyle(.secondary) }
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                if index < line.values.count {
+                    HStack(spacing: 5) {
+                        if lines.count > 1 {
+                            Swatch(color: line.color)
+                            Text(line.name).foregroundStyle(.secondary)
+                            Spacer(minLength: 8)
+                        }
+                        Text(format(line.values[index])).monospacedDigit()
+                    }
+                    .font(.system(size: 11))
+                }
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .surface(radius: 8)
+    }
+}
+
+/// A series as a smooth curve (or the area under it) across the full width.
+struct Trend: Shape {
+    let values: [Double]
+    let count: Int
+    let top: Double
+    let area: Bool
+
+    func path(in rect: CGRect) -> Path {
+        guard count > 1, values.count > 1 else { return Path() }
+        let offset = count - values.count
+        let points = values.enumerated().map { i, v in
+            CGPoint(x: rect.width * CGFloat(i + offset) / CGFloat(count - 1), y: Self.y(v, top: top, height: rect.height))
+        }
+        var path = Self.monotone(points)
+        if area {
+            path.addLine(to: CGPoint(x: points[points.count - 1].x, y: rect.height))
+            path.addLine(to: CGPoint(x: points[0].x, y: rect.height))
+            path.closeSubpath()
+        }
+        return path
+    }
+
+    static func y(_ value: Double, top: Double, height: CGFloat) -> CGFloat {
+        let v = value.isFinite ? min(max(value, 0), top) : 0
+        return height - CGFloat(v / max(top, 1e-12)) * height
+    }
+
+    /// A smooth curve through the points that never overshoots them
+    /// (Fritsch–Carlson monotone cubic), so a flat line stays flat.
+    static func monotone(_ p: [CGPoint]) -> Path {
+        var path = Path()
+        path.move(to: p[0])
+        let n = p.count
+        guard n > 2 else { path.addLine(to: p[1]); return path }
+        var d = [CGFloat](repeating: 0, count: n - 1)
+        for i in 0..<n - 1 { d[i] = (p[i + 1].y - p[i].y) / max(p[i + 1].x - p[i].x, 1e-6) }
+        var m = [CGFloat](repeating: 0, count: n)
+        m[0] = d[0]
+        m[n - 1] = d[n - 2]
+        for i in 1..<n - 1 { m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2 }
+        for i in 0..<n - 1 where d[i] != 0 {
+            let a = m[i] / d[i], b = m[i + 1] / d[i]
+            let s = a * a + b * b
+            if s > 9 {
+                let t = 3 / s.squareRoot()
+                m[i] = t * a * d[i]
+                m[i + 1] = t * b * d[i]
+            }
+        }
+        for i in 0..<n - 1 {
+            let h = (p[i + 1].x - p[i].x) / 3
+            path.addCurve(to: p[i + 1],
+                          control1: CGPoint(x: p[i].x + h, y: p[i].y + m[i] * h),
+                          control2: CGPoint(x: p[i + 1].x - h, y: p[i + 1].y - m[i + 1] * h))
+        }
+        return path
     }
 }
 
@@ -527,3 +553,4 @@ func copyToPasteboard(_ string: String) {
 func reveal(_ path: String) {
     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
 }
+

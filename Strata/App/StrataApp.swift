@@ -28,6 +28,9 @@ struct StrataApp: App {
         if let dir = Snapshot.directory {
             Task { await Snapshot.run(monitor: monitor, model: model, into: dir) }
         }
+        if let seconds = Stress.seconds {
+            Task { await Stress.run(monitor: monitor, for: seconds) }
+        }
     }
 
     var body: some Scene {

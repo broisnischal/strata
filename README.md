@@ -52,7 +52,7 @@ make clean
 
 The app lands in `.build/xcode/Build/Products/<Configuration>/Strata.app`. The Xcode project is generated from `project.yml`; `make` regenerates it.
 
-`Strata --snapshot <dir> [page …]` renders pages to PNGs in light and dark without needing Screen Recording permission. `swift tools/make-icon.swift Strata/Assets.xcassets/AppIcon.appiconset` redraws the icon.
+`Strata --stress [seconds]` drives the process table with live data (filters, tree, sorting, selection) and prints its memory; set `STRESS_MODE=human` for a realistic pace. `Strata --snapshot <dir> [page …]` renders pages to PNGs in light and dark without needing Screen Recording permission. `swift tools/make-icon.swift Strata/Assets.xcassets/AppIcon.appiconset` redraws the icon.
 
 ## Permissions
 

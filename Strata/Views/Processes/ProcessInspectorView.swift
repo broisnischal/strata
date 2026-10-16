@@ -207,13 +207,15 @@ struct ProcessInspectorView: View {
         }
     }
 
+    @ViewBuilder
     private func outputView(_ text: String?, placeholder: String) -> some View {
-        ScrollView([.vertical, .horizontal]) {
-            Text(text ?? placeholder)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(text == nil ? .secondary : .primary)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        if let text {
+            TextLog(text: text)
+        } else {
+            Text(placeholder)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .padding(12)
         }
     }

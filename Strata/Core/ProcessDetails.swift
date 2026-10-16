@@ -64,7 +64,8 @@ enum ProcessInspector {
         mib = [CTL_KERN, KERN_PROCARGS2, pid]
         guard sysctl(&mib, 3, &buf, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return ([], []) }
 
-        let argc = buf.withUnsafeBytes { $0.loadUnaligned(as: Int32.self) }
+        // argc comes from the process's own memory: never trust it to be sane.
+        let argc = max(0, Int(buf.withUnsafeBytes { $0.loadUnaligned(as: Int32.self) }))
         var i = MemoryLayout<Int32>.size
         while i < size, buf[i] != 0 { i += 1 }  // exec path
         while i < size, buf[i] == 0 { i += 1 }  // padding
@@ -73,13 +74,13 @@ enum ProcessInspector {
         var start = i
         while i < size {
             if buf[i] == 0 {
-                if i > start { strings.append(String(decoding: buf[start..<i], as: UTF8.self)) } else if strings.count >= Int(argc) { break }
+                if i > start { strings.append(String(decoding: buf[start..<i], as: UTF8.self)) } else if strings.count >= argc { break }
                 start = i + 1
             }
             i += 1
         }
-        let args = Array(strings.prefix(Int(argc)))
-        let env = strings.dropFirst(Int(argc)).filter { $0.contains("=") }
+        let args = Array(strings.prefix(argc))
+        let env = strings.dropFirst(argc).filter { $0.contains("=") }
         return (args, Array(env))
     }
 

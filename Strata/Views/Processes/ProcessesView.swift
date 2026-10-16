@@ -11,13 +11,14 @@ struct ProcessesView: View {
     @State private var search = ""
     @State private var filter: ProcessFilter = .all
     @State private var asTree = false
-    @State private var sortOrder = [KeyPathComparator(\ProcessSample.cpu, order: .reverse)]
+    @State private var sort = ProcessSort()
     @State private var selection: Int32?
     @State private var showInspector = true
     @State private var killRequest: KillRequest?
     @State private var error: String?
     /// Rows as shown: values from the latest sample, positions held between reorders.
     @State private var rows: [ProcessSample] = []
+    @State private var tracked: Set<Int32> = []
     @State private var order = StableOrder()
     @State private var pointing = false
 
@@ -58,89 +59,44 @@ struct ProcessesView: View {
         .onChange(of: search) { refreshRows(force: true) }
         .onChange(of: filter) { refreshRows(force: true) }
         .onChange(of: asTree) { refreshRows(force: true) }
-        .onChange(of: sortOrder) { refreshRows(force: true) }
+        .onChange(of: sort) { refreshRows(force: true) }
         .onChange(of: selection) { monitor.focusPID = selection }
         .onDisappear { monitor.focusPID = nil }
     }
 
     private var table: some View {
-        Table(rows, children: \.children, selection: $selection, sortOrder: $sortOrder) {
-            TableColumn("Process", value: \.name) { p in
-                HStack(spacing: 6) {
-                    Image(nsImage: IconCache.icon(forBundle: p.bundlePath)).resizable().frame(width: 16, height: 16)
-                    Text(p.name).lineLimit(1).truncationMode(.middle)
-                    if monitor.tracking.target(for: p) != nil {
-                        Image(systemName: "pin.fill").font(.system(size: 9)).foregroundStyle(.secondary).help("Tracked")
-                    }
-                    if p.limited {
-                        Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(.tertiary)
-                            .help("Owned by \(p.user): CPU and memory come from ps; other details need admin.")
-                    }
-                }
-            }
-            .width(min: 180, ideal: 250)
-            TableColumn("% CPU", value: \.cpu) { p in
-                Text(Fmt.cpu(p.cpu)).monospacedDigit().foregroundStyle(p.cpu >= 0.05 ? .primary : .tertiary)
-            }
-            .width(60)
-            TableColumn("Memory", value: \.memory) { Text(Fmt.bytes($0.memory)).monospacedDigit() }.width(78)
-            TableColumn("Power", value: \.sortPower) { p in
-                Text(p.power.map(Fmt.watts) ?? "–").monospacedDigit().foregroundStyle(.secondary)
-            }
-            .width(68)
-            TableColumn("Threads", value: \.sortThreads) { p in
-                Text(p.threads.map(String.init) ?? "–").monospacedDigit().foregroundStyle(.secondary)
-            }
-            .width(54)
-            TableColumn("CPU Time", value: \.cpuTime) { Text(Fmt.cpuTime($0.cpuTime)).monospacedDigit().foregroundStyle(.secondary) }.width(74)
-            TableColumn("Disk Read", value: \.sortDiskRead) { p in
-                Text(p.diskRead.map(Fmt.rate) ?? "–").monospacedDigit().foregroundStyle(.secondary)
-            }
-            .width(76)
-            TableColumn("Disk Write", value: \.sortDiskWrite) { p in
-                Text(p.diskWrite.map(Fmt.rate) ?? "–").monospacedDigit().foregroundStyle(.secondary)
-            }
-            .width(76)
-            TableColumn("PID", value: \.pid) { Text(verbatim: "\($0.pid)").monospacedDigit().foregroundStyle(.secondary) }.width(54)
-            TableColumn("User", value: \.user) { Text($0.user).foregroundStyle(.secondary) }.width(min: 56, ideal: 76)
-        }
-        .tableStyle(.inset)
-        .alternatingRowBackgrounds(.disabled)
-        .transaction { $0.animation = nil }
-        .onHover { pointing = $0 }
-        .contextMenu(forSelectionType: Int32.self) { ids in
-            if let pid = ids.first, let p = monitor.processes.first(where: { $0.pid == pid }) {
-                trackMenu(for: p)
-                Divider()
-                Button("Quit \(p.name)") { killRequest = KillRequest(process: p, force: false) }
-                Button("Force Quit \(p.name)") { killRequest = KillRequest(process: p, force: true) }
-                Divider()
-                if let path = p.path {
-                    Button("Reveal in Finder") { reveal(path) }
-                    Button("Copy Path") { copyToPasteboard(path) }
-                }
-                Button("Copy PID") { copyToPasteboard("\(p.pid)") }
-            }
-        } primaryAction: { _ in
-            showInspector = true
-        }
+        ProcessTable(
+            rows: rows, tracked: tracked, selection: $selection, sort: $sort,
+            onPointing: { pointing = $0 },
+            onOpen: { _ in showInspector = true },
+            menu: menuItems
+        )
     }
 
-    @ViewBuilder
-    private func trackMenu(for p: ProcessSample) -> some View {
+    private func menuItems(for p: ProcessSample) -> [ProcessMenuItem?] {
+        var items: [ProcessMenuItem?] = []
         if let t = monitor.tracking.target(for: p) {
-            Button("Show in Tracked") { model.selection = .tracked }
-            Button("Stop Tracking \(t.title)") { monitor.tracking.untrack(t.id) }
-        } else if let app = p.appPath {
-            Button("Track \((app as NSString).lastPathComponent.replacingOccurrences(of: ".app", with: ""))") { monitor.tracking.track(p) }
+            items.append(ProcessMenuItem("Show in Tracked") { model.selection = .tracked })
+            items.append(ProcessMenuItem("Stop Tracking \(t.title)") { monitor.tracking.untrack(t.id) })
         } else {
-            Button("Track \(p.name)") { monitor.tracking.track(p) }
+            let title = p.appPath.map { ($0 as NSString).lastPathComponent.replacingOccurrences(of: ".app", with: "") } ?? p.name
+            items.append(ProcessMenuItem("Track \(title)") { monitor.tracking.track(p) })
         }
+        items.append(nil)
+        items.append(ProcessMenuItem("Quit \(p.name)") { killRequest = KillRequest(process: p, force: false) })
+        items.append(ProcessMenuItem("Force Quit \(p.name)") { killRequest = KillRequest(process: p, force: true) })
+        items.append(nil)
+        if let path = p.path {
+            items.append(ProcessMenuItem("Reveal in Finder") { reveal(path) })
+            items.append(ProcessMenuItem("Copy Path") { copyToPasteboard(path) })
+        }
+        items.append(ProcessMenuItem("Copy PID") { copyToPasteboard("\(p.pid)") })
+        return items
     }
 
     private var footer: some View {
         HStack(spacing: 12) {
-            Text("\(monitor.processes.count) processes · \(monitor.processes.filter(\.limited).count) limited")
+            Text("\(monitor.processes.count) processes · \(monitor.limitedCount) limited")
             Spacer()
             Label(pointing ? "Order held while the pointer is on the list" : "Reorders every \(Int(monitor.reorderInterval)) s",
                   systemImage: pointing ? "pause.circle" : "arrow.up.arrow.down")
@@ -220,17 +176,11 @@ struct ProcessesView: View {
                     || ($0.path?.localizedCaseInsensitiveContains(query) ?? false)
             }
         }
-        let comparators = sortOrder
-        let ordered = order.order(list, by: { a, b in
-            for c in comparators {
-                switch c.compare(a, b) {
-                case .orderedAscending: return true
-                case .orderedDescending: return false
-                case .orderedSame: continue
-                }
-            }
-            return a.pid < b.pid
-        }, every: monitor.reorderInterval, frozen: pointing, force: force)
+        let sort = sort
+        let ordered = order.order(list, by: sort.less, every: monitor.reorderInterval, frozen: pointing, force: force)
+        let tracking = monitor.tracking
+        let nowTracked = tracking.targets.isEmpty ? [] : Set(monitor.processes.lazy.filter { tracking.target(for: $0) != nil }.map(\.pid))
+        if nowTracked != tracked { tracked = nowTracked }
         rows = asTree && query.isEmpty && filter == .all ? ProcessTree.build(ordered) : ordered
     }
 
@@ -247,13 +197,6 @@ struct ProcessesView: View {
             self.error = error.localizedDescription
         }
     }
-}
-
-extension ProcessSample {
-    var sortThreads: Int { threads ?? -1 }
-    var sortPower: Double { power ?? -1 }
-    var sortDiskRead: Double { diskRead ?? -1 }
-    var sortDiskWrite: Double { diskWrite ?? -1 }
 }
 
 struct KillRequest: Identifiable {
